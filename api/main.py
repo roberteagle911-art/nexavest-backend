@@ -5,9 +5,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-app = FastAPI(title="NexaVest Backend (Vercel)")
+app = FastAPI(title="NexaVest Backend")
 
-# Allow your frontend
+# ✅ Allow frontend and localhost
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -19,22 +19,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ Safely get API Key
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
 FINNHUB_URL = "https://finnhub.io/api/v1/quote"
+
 
 class AnalyzeRequest(BaseModel):
     symbol: str
     amount: float
 
+
 @app.get("/")
 def home():
     return {"status": "ok", "message": "Backend running successfully 🚀"}
 
-@app.post("/api/analyze")
-def analyze_stock(request: AnalyzeRequest):
-    symbol = request.symbol.upper()
-    amount = request.amount
+
+# ✅ NEW: allow GET too for browser test
+@app.api_route("/api/analyze", methods=["GET", "POST"])
+def analyze_stock(request: AnalyzeRequest = None, symbol: str = None, amount: float = None):
+    if request:
+        symbol = request.symbol.upper()
+        amount = request.amount
+    elif symbol:
+        symbol = symbol.upper()
+        amount = float(amount or 1000)
+    else:
+        raise HTTPException(status_code=400, detail="Missing symbol or amount")
 
     if not FINNHUB_API_KEY:
         raise HTTPException(status_code=500, detail="Missing FINNHUB_API_KEY environment variable")
@@ -42,12 +51,12 @@ def analyze_stock(request: AnalyzeRequest):
     try:
         response = requests.get(f"{FINNHUB_URL}?symbol={symbol}&token={FINNHUB_API_KEY}")
         data = response.json()
-
         if "c" not in data or not data["c"]:
-            raise Exception("No data from Finnhub")
-
-        current, high, low, prev = data["c"], data["h"], data["l"], data["pc"]
-
+            raise Exception("No data returned")
+        current = data["c"]
+        high = data["h"]
+        low = data["l"]
+        prev = data["pc"]
     except Exception:
         try:
             stock = yf.Ticker(symbol)
@@ -57,7 +66,7 @@ def analyze_stock(request: AnalyzeRequest):
             low = hist["Low"].iloc[-1]
             prev = hist["Close"].iloc[-2]
         except Exception:
-            raise HTTPException(status_code=404, detail="Invalid symbol or no data found")
+            raise HTTPException(status_code=404, detail="Invalid stock symbol or no data found")
 
     volatility = round((high - low) / current, 3)
     expected_return = round((current - prev) / prev, 3)
