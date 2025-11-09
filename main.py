@@ -1,10 +1,10 @@
-import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import requests
 import yfinance as yf
 
-app = FastAPI(title="NexaVest Live Backend")
+app = FastAPI(title="NexaVest Backend (Vercel)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,15 +21,16 @@ class AnalyzeRequest(BaseModel):
     symbol: str
     amount: float
 
+@app.get("/")
+def home():
+    return {"status": "ok", "message": "Backend running on Vercel"}
+
 @app.post("/analyze")
 def analyze_stock(request: AnalyzeRequest):
     symbol = request.symbol.upper().strip()
-
-    # ✅ If user entered Indian stock, auto-add NSE
     if "." not in symbol:
-        symbol = symbol + ".NS"
+        symbol += ".NS"
 
-    # Try Finnhub first
     try:
         res = requests.get(f"{FINNHUB_URL}?symbol={symbol}&token={FINNHUB_API_KEY}")
         data = res.json()
@@ -39,7 +40,6 @@ def analyze_stock(request: AnalyzeRequest):
         else:
             raise Exception("No data from Finnhub")
     except Exception:
-        # ✅ Fallback to Yahoo Finance (works for NSE/BSE)
         try:
             stock = yf.Ticker(symbol)
             hist = stock.history(period="5d")
@@ -50,7 +50,6 @@ def analyze_stock(request: AnalyzeRequest):
         except Exception:
             raise HTTPException(status_code=404, detail="Invalid symbol or data unavailable")
 
-    # 📊 Real Calculations
     volatility = round((high - low) / current, 3)
     expected_return = round((current - prev) / prev, 3)
 
@@ -67,5 +66,5 @@ def analyze_stock(request: AnalyzeRequest):
         "expected_return": expected_return,
         "volatility": volatility,
         "risk_category": risk,
-        "ai_recommendation": f"{symbol} shows {risk.lower()} risk and {expected_return*100:.2f}% expected return. Ideal for {risk.lower()}-risk investors."
-        }
+        "ai_recommendation": f"{symbol} shows {risk.lower()} risk and {expected_return*100:.2f}% expected return."
+    }
